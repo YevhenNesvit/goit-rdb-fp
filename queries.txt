@@ -1,0 +1,119 @@
+1.
+CREATE DATABASE pandemic;
+
+USE pandemic;
+
+CREATE TABLE countries (
+    Country_id INT AUTO_INCREMENT PRIMARY KEY,
+    Entity VARCHAR(255) NOT NULL,
+    Code VARCHAR(20) NOT NULL,
+    UNIQUE (Entity, Code)
+);
+
+INSERT INTO countries (Entity, Code)
+SELECT DISTINCT Entity, Code
+FROM infectious_cases;
+
+ALTER TABLE infectious_cases
+ADD COLUMN Country_id INT;
+
+UPDATE infectious_cases ic
+JOIN countries c ON ic.Entity = c.Entity AND ic.Code = c.Code
+SET ic.Country_id = c.Country_id;
+
+ALTER TABLE infectious_cases
+DROP COLUMN Entity,
+DROP COLUMN Code;
+
+ALTER TABLE infectious_cases
+MODIFY COLUMN Country_id INT FIRST;
+
+2.
+USE pandemic;
+CREATE TABLE pandemic (
+    Pandemic_id INT AUTO_INCREMENT PRIMARY KEY,
+    Country_id INT,
+    Year INT,
+    FOREIGN KEY (Country_id) REFERENCES countries(Country_id)
+);
+
+INSERT INTO pandemic (Country_id, Year) 
+SELECT Country_id, Year 
+FROM infectious_cases;
+
+ALTER TABLE infectious_cases
+ADD COLUMN Pandemic_id INT;
+
+ALTER TABLE infectious_cases
+MODIFY COLUMN Pandemic_id INT FIRST;
+
+UPDATE infectious_cases ic
+JOIN pandemic p ON ic.Country_id = p.Country_id AND ic.Year = p.Year
+SET ic.Pandemic_id = p.Pandemic_id;
+
+ALTER TABLE infectious_cases
+DROP COLUMN Country_id,
+DROP COLUMN Year;
+
+3.
+USE pandemic;
+WITH сleaned_infectious_cases AS (
+    SELECT 
+        ic.Pandemic_id,
+        ic.Number_rabies,
+        CASE
+            WHEN TRIM(ic.Number_rabies) = '' THEN NULL
+            ELSE CAST(ic.Number_rabies AS DECIMAL(10,2))
+        END AS Cleaned_Number_rabies
+    FROM infectious_cases ic
+),
+
+aggregated_data AS (
+    SELECT 
+        c.Entity,
+        c.Code,
+        AVG(ci.Cleaned_Number_rabies) AS avg_rabies,
+        MIN(ci.Cleaned_Number_rabies) AS min_rabies,
+        MAX(ci.Cleaned_Number_rabies) AS max_rabies,
+        SUM(ci.Cleaned_Number_rabies) AS sum_rabies
+    FROM сleaned_infectious_cases ci
+    JOIN pandemic p ON ci.Pandemic_id = p.Pandemic_id
+    JOIN countries c ON p.Country_id = c.Country_id
+    GROUP BY c.Entity, c.Code
+)
+
+SELECT *
+FROM aggregated_data
+ORDER BY avg_rabies DESC
+LIMIT 10;
+
+4.
+USE pandemic;
+SELECT 
+    p.Pandemic_id,
+    p.Country_id,
+    p.Year,
+    MAKEDATE(p.Year, 1) AS first_january,
+    CURDATE() AS cur_date,
+    TIMESTAMPDIFF(YEAR, MAKEDATE(p.Year, 1), CURDATE()) AS year_difference
+FROM pandemic p;
+
+5.
+USE pandemic;
+DELIMITER //
+
+CREATE FUNCTION YearDifference(year_input INT)
+RETURNS INT
+DETERMINISTIC
+BEGIN
+    DECLARE year_start_date DATE;
+    DECLARE year_diff INT;
+
+    SET year_start_date = MAKEDATE(year_input, 1);
+    
+    SET year_diff = TIMESTAMPDIFF(YEAR, year_start_date, CURDATE());
+    
+    RETURN year_diff;
+END //
+
+DELIMITER ;
